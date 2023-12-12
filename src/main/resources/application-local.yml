@@ -1,0 +1,27 @@
+server:
+  port: 19351
+  session-timeout: 30
+  tomcat.uri-encoding: UTF-8
+
+logging:
+  level:
+    com:
+      tywl:
+        apigw: debug
+
+kafka:
+  bootstrap-servers: 192.168.42.156:9092
+  producer:
+    retries: 3
+    batch-size: 100000
+    buffer-memory: 900544320
+  consumer:
+    group-id: test-group
+    auto-offset-reset: latest
+    max-poll-records: 10000
+    enable-auto-commit: false
+    auto-commit-interval: 60000
+    batch:
+      concurrency: 1
+
+
