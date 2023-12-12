@@ -33,5 +33,4 @@ public class TywlApigwLogAggregation {
     private Long minTimeGwDuration;
     private Long minTimeThirdDuration;
     private Long totalNum;
-
 }

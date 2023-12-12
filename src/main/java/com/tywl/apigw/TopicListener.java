@@ -2,8 +2,6 @@ package com.tywl.apigw;
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -17,9 +15,13 @@ import java.util.stream.Collectors;
 @Component
 @Slf4j
 public class TopicListener {
+    private KafkaTemplate kafkaTemplate;
+
     @Autowired
-    private KafkaTemplate<String, String> kafkaTemplate;
-//
+    public TopicListener(KafkaTemplate kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
     @KafkaListener(id = "dacp-group-test", groupId = "dacp-group-test", topics = {"billing"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void batchConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();

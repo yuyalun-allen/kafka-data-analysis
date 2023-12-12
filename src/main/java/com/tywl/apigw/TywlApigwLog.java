@@ -24,6 +24,4 @@ public class TywlApigwLog {
     private String gwErrorCode;
     private String account;
     private String logType;
-
-
 }
