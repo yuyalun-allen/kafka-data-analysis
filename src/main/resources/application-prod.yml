@@ -13,14 +13,13 @@ kafka:
   bootstrap-servers: 172.25.45.122:8423,172.25.45.140:8423,172.25.45.133:8423
   producer:
     retries: 3
-    batch-size: 500000
+    batch-size: 500
     buffer-memory: 900544320
   consumer:
-    group-id: dacp-group-test
     auto-offset-reset: latest
-    max-poll-records: 5000000
+    max-poll-records: 5000
     enable-auto-commit: false
-    auto-commit-interval: 60000
+    auto-commit-interval: 60
     batch:
       concurrency: 5
 
