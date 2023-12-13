@@ -46,9 +46,6 @@ public class KafkaConfiguration {
     @Value("${kafka.consumer.enable-auto-commit}")
     private Boolean autoCommit;
 
-    @Value("${kafka.consumer.auto-commit-interval}")
-    private Integer autoCommitInterval;
-
     /**
      *  生产者工厂
      */
@@ -58,7 +55,7 @@ public class KafkaConfiguration {
     }
 
     /**
-     *  消费者批量工厂
+     *  消费者容器工厂
      */
     @Bean
     public KafkaListenerContainerFactory<?> batchFactory() {

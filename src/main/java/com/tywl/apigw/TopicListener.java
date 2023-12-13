@@ -1,5 +1,6 @@
 package com.tywl.apigw;
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -15,19 +16,72 @@ import java.util.stream.Collectors;
 @Component
 @Slf4j
 public class TopicListener {
-    @KafkaListener(id = "dacp-group-test", groupId = "test-south-nginx", topics = {"south-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
-    public void testConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
+    private static final String[] fieldNames;
+    static {
+        fieldNames = "$remote_addr||$remote_user||$time_local||$http_x_forwarded_for||$http_true_client_ip||$upstream_addr||$upstream_response_time||$request_time||$hostname||$host||$http_host||$request||$status||$body_bytes_sent||$http_referer||$http_user_agent||$http_AppKey"
+                    .split("\\|\\|");
+    }
+//    @KafkaListener(topics = {"south-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
+    public void southNginxExtractionConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
-        try (FileWriter fileWriter = new FileWriter("message.txt")) {
+        try (FileWriter fileWriter = new FileWriter("south-nginx-message.txt", true)) {
             for (ConsumerRecord<?, ?> record: consumerRecords) {
-                fileWriter.write(record.toString() + "\n");
+                String message = JSON.parseObject(record.value().toString()).getString("message");
+                fileWriter.write(extractKeyFieldValues(message) + "\n");
             }
+            log.info("消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
         } catch (IOException ioe) {
             log.error("消息写入文件失败。");
         }
-        log.info("消息写入文件成功！获取数据{}，耗时{}",consumerRecords.size(),System.currentTimeMillis() - start);
         ack.acknowledge();
     }
+
+    @KafkaListener(topics = {"north-app"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
+    public void extractionConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
+        long start = System.currentTimeMillis();
+        try (FileWriter fileWriter = new FileWriter("north-app-message.txt", true)) {
+            for (ConsumerRecord<?, ?> record: consumerRecords) {
+                JSONObject message = JSON.parseObject(record.value().toString());
+                String type = message.getString("logType");
+                if (!type.equals("billing")) {
+                    continue;
+                }
+                String keyValues = message.getString("apiCode") + "||" +
+                        message.getString("apiName") + "||" +
+                        message.getString("appCode") + "||" +
+                        message.getString("appName") + "||" +
+                        message.getString("date") + "||" +
+                        message.getString("timeGwReq") + "||" +
+                        message.getString("timeGwRes") + "||" +
+                        message.getString("timeThirdReq") + "||" +
+                        message.getString("timeThirdRes") + "||" +
+                        message.getString("resCode") + "||" +
+                        message.getString("urlIn") + "||" +
+                        message.getString("urlOut");
+                fileWriter.write(keyValues + "\n");
+            }
+            log.info("消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
+        } catch (IOException ioe) {
+            log.error("消息写入文件失败。");
+        }
+        ack.acknowledge();
+    }
+
+    private String extractKeyFieldValues(String message) {
+        Map<String, String> fieldValuePairs = new HashMap<>();
+        String[] values = message.split("\\|\\|");
+        for (int i = 0; i < fieldNames.length; i++) {
+            fieldValuePairs.put(fieldNames[i], values[i]);
+        }
+        return fieldValuePairs.get("$remote_addr") + "||" +
+               fieldValuePairs.get("$upstream_addr") + "||" +
+               fieldValuePairs.get("$time_local") + "||" +
+               fieldValuePairs.get("$request_time") + "||" +
+               fieldValuePairs.get("$request") + "||" +
+               fieldValuePairs.get("$status") + "||" +
+               fieldValuePairs.get("$http_AppKey");
+    }
+
     public void batchConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
         List<TywlApigwLog> tywlApigwLogList = new ArrayList<>();

@@ -1,5 +1,5 @@
 server:
-  port: 19351
+  port: 19352
   session-timeout: 30
   tomcat.uri-encoding: UTF-8
 
@@ -16,11 +16,12 @@ kafka:
     batch-size: 500
     buffer-memory: 900544320
   consumer:
+    group-id: test-south-nginx
     auto-offset-reset: latest
     max-poll-records: 5000
     enable-auto-commit: false
     auto-commit-interval: 60
     batch:
-      concurrency: 5
+      concurrency: 50
 
 
