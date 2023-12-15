@@ -3,7 +3,9 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.listener.ConsumerSeekAware;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
@@ -15,14 +17,22 @@ import java.util.stream.Collectors;
 
 @Component
 @Slf4j
-public class TopicListener {
+public class KafkaConsumer implements ConsumerSeekAware {
     private static final String[] fieldNames;
     static {
         fieldNames = "$remote_addr||$remote_user||$time_local||$http_x_forwarded_for||$http_true_client_ip||$upstream_addr||$upstream_response_time||$request_time||$hostname||$host||$http_host||$request||$status||$body_bytes_sent||$http_referer||$http_user_agent||$http_AppKey"
                     .split("\\|\\|");
     }
-//    @KafkaListener(topics = {"south-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
-    public void southNginxExtractionConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
+
+    /** 每次客户端分配到Topic分区时都从最新的offset开始。*/
+    @Override
+    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments,
+                              ConsumerSeekCallback callback) {
+        callback.seekToEnd(assignments.keySet());
+    }
+
+    @KafkaListener(topics = {"south-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
+    public void southNginxExtraction(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
         try (FileWriter fileWriter = new FileWriter("south-nginx-message.txt", true)) {
             for (ConsumerRecord<?, ?> record: consumerRecords) {
@@ -36,14 +46,14 @@ public class TopicListener {
         ack.acknowledge();
     }
 
-    @KafkaListener(topics = {"north-app"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
+//    @KafkaListener(topics = {"north-app"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void extractionConsumer(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
         try (FileWriter fileWriter = new FileWriter("north-app-message.txt", true)) {
             for (ConsumerRecord<?, ?> record: consumerRecords) {
                 JSONObject message = JSON.parseObject(record.value().toString());
                 String type = message.getString("logType");
-                if (!type.equals("billing")) {
+                if (type == null || !type.equals("billing")) {
                     continue;
                 }
                 String keyValues = message.getString("apiCode") + "||" +
