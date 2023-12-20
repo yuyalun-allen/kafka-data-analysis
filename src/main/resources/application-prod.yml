@@ -20,8 +20,7 @@ kafka:
     auto-offset-reset: latest
     max-poll-records: 5000
     enable-auto-commit: false
-    auto-commit-interval: 60
+    output-base-dir: messages/
+    output-inter-minutes: 5
     batch:
       concurrency: 50
-
-
