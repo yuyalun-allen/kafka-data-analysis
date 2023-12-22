@@ -27,6 +27,11 @@ public class KafkaConsumer implements ConsumerSeekAware {
     @Value("${kafka.consumer.output-inter-minutes}")
     private long OUTPUT_INTERVAL_MIN;
 
+    private static final Object southNginxWriteLock = new Object();
+    private static final Object northNginxWriteLock = new Object();
+    private static final Object southAppWriteLock = new Object();
+    private static final Object northAppWriteLock = new Object();
+
     private static final String[] fieldNames;
     static {
         fieldNames = "$remote_addr||$remote_user||$time_local||$http_x_forwarded_for||$http_true_client_ip||$upstream_addr||$upstream_response_time||$request_time||$hostname||$host||$http_host||$request||$status||$body_bytes_sent||$http_referer||$http_user_agent||$http_AppKey"
@@ -40,17 +45,13 @@ public class KafkaConsumer implements ConsumerSeekAware {
         callback.seekToEnd(assignments.keySet());
     }
 
+    /** 以下4个Listener分别监听4个不同的主题。 */
+
     @KafkaListener(topics = {"south-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void southNginxExtraction(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
-        try (BufferedWriter fileWriter = new BufferedWriter(new FileWriter(determineAndCreateOutputDir() + "south-nginx-message.csv", true))) {
-            for (ConsumerRecord<?, ?> record: consumerRecords) {
-                String message = JSON.parseObject(record.value().toString()).getString("message");
-                fileWriter.write(extractKeyFieldValues(message) + "\n");
-            }
-            log.info("south-nginx: 消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
-        } catch (IOException ioe) {
-            log.error("south-nginx: 消息写入文件失败。");
+        synchronized (southNginxWriteLock) {
+            writeToCsv(consumerRecords, "south-nginx", start);
         }
         ack.acknowledge();
     }
@@ -58,14 +59,8 @@ public class KafkaConsumer implements ConsumerSeekAware {
     @KafkaListener(topics = {"north-nginx"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void northNginxExtraction(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
-        try (BufferedWriter fileWriter = new BufferedWriter(new FileWriter(determineAndCreateOutputDir() + "north-nginx-message.csv", true))) {
-            for (ConsumerRecord<?, ?> record: consumerRecords) {
-                String message = JSON.parseObject(record.value().toString()).getString("message");
-                fileWriter.write(extractKeyFieldValues(message) + "\n");
-            }
-            log.info("north-nginx: 消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
-        } catch (IOException ioe) {
-            log.error("north-nginx: 消息写入文件失败。");
+        synchronized (northNginxWriteLock) {
+            writeToCsv(consumerRecords, "north-nginx", start);
         }
         ack.acknowledge();
     }
@@ -73,19 +68,8 @@ public class KafkaConsumer implements ConsumerSeekAware {
     @KafkaListener(topics = {"north-app"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void northAppExtraction(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
-        try (BufferedWriter fileWriter = new BufferedWriter(new FileWriter(determineAndCreateOutputDir() + "north-app-message.csv", true))) {
-            for (ConsumerRecord<?, ?> record: consumerRecords) {
-                JSONObject message = JSON.parseObject(record.value().toString());
-                String type = message.getString("logType");
-                if (type == null || !type.equals("billing")) {
-                    continue;
-                }
-                String keyValues = extractKeyFieldValues(message);
-                fileWriter.write(keyValues + "\n");
-            }
-            log.info("north-app: 消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
-        } catch (IOException ioe) {
-            log.error("north-app: 消息写入文件失败。");
+        synchronized (northAppWriteLock) {
+            writeToCsv(consumerRecords, "north-app", start);
         }
         ack.acknowledge();
     }
@@ -93,21 +77,39 @@ public class KafkaConsumer implements ConsumerSeekAware {
     @KafkaListener(topics = {"south-app"}, containerFactory = "batchFactory", errorHandler="consumerAwareErrorHandler")
     public void southAppExtraction(List<ConsumerRecord<?, ?>> consumerRecords, Acknowledgment ack) {
         long start = System.currentTimeMillis();
-        try (BufferedWriter fileWriter = new BufferedWriter(new FileWriter(determineAndCreateOutputDir() + "south-app-message.csv", true))) {
-            for (ConsumerRecord<?, ?> record: consumerRecords) {
-                JSONObject message = JSON.parseObject(record.value().toString());
-                String type = message.getString("logType");
-                if (type == null || !type.equals("billing")) {
-                    continue;
-                }
-                String keyValues = extractKeyFieldValues(message);
-                fileWriter.write(keyValues + "\n");
-            }
-            log.info("south-app: 消息写入文件成功！获取数据{}条，耗时{}ms", consumerRecords.size(),System.currentTimeMillis() - start);
-        } catch (IOException ioe) {
-            log.error("south-app: 消息写入文件失败。");
+        synchronized (southAppWriteLock) {
+            writeToCsv(consumerRecords, "south-app", start);
         }
         ack.acknowledge();
+    }
+
+    private void writeToCsv(List<ConsumerRecord<?, ?>> consumerRecords, String topic, long start) {
+        try (BufferedWriter fileWriter = new BufferedWriter(new FileWriter(determineAndCreateOutputDir() + topic + "-message.csv", true))) {
+            // 处理app数据
+            if (topic.split("-")[1].equals("app")) {
+                for (ConsumerRecord<?, ?> record : consumerRecords) {
+                    JSONObject message = JSON.parseObject(record.value().toString());
+                    String type = message.getString("logType");
+                    if (type == null || !type.equals("billing")) {
+                        continue;
+                    }
+                    String keyValues = extractKeyFieldValues(message) + "\n";
+                    fileWriter.write(keyValues);
+                }
+            // 处理nginx数据
+            } else if (topic.split("-")[1].equals("nginx")) {
+                for (ConsumerRecord<?, ?> record : consumerRecords) {
+                    String message = JSON.parseObject(record.value().toString()).getString("message");
+                    String messageRecord = extractKeyFieldValues(message) + "\n";
+                    fileWriter.write(messageRecord);
+                }
+            } else {
+                log.error("------------------不合法的Topic！--------------------");
+            }
+            log.info("{}: 消息写入文件成功！获取数据{}条，耗时{}ms",topic, consumerRecords.size(), System.currentTimeMillis() - start);
+        } catch (IOException ioe) {
+            log.error("{}: 消息写入文件失败。", topic);
+        }
     }
 
     private String extractKeyFieldValues(String message) {
@@ -121,8 +123,8 @@ public class KafkaConsumer implements ConsumerSeekAware {
                fieldValuePairs.get("$upstream_addr") + "," +
                fieldValuePairs.get("$request_time") + "," +
                fieldValuePairs.get("$status") + "," +
-               fieldValuePairs.get("$request").split(" ")[1].split("\\?")[0] + "," +
-               fieldValuePairs.get("$http_AppKey");
+               fieldValuePairs.get("$request").split(" ")[1].split("\\?")[0].trim() + "," +
+               fieldValuePairs.get("$http_AppKey").trim();
     }
 
     private String extractKeyFieldValues(JSONObject message) {

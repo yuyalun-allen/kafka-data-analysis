@@ -1,6 +1,5 @@
 server:
   port: 19352
-  session-timeout: 30
   tomcat.uri-encoding: UTF-8
 
 logging:
