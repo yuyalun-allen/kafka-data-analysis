@@ -100,7 +100,11 @@ public class KafkaConsumer implements ConsumerSeekAware {
             } else if (topic.split("-")[1].equals("nginx")) {
                 for (ConsumerRecord<?, ?> record : consumerRecords) {
                     String message = JSON.parseObject(record.value().toString()).getString("message");
-                    String messageRecord = extractKeyFieldValues(message) + "\n";
+                    String keyValues = extractKeyFieldValues(message);
+                    if (keyValues == null) {
+                        continue;
+                    }
+                    String messageRecord = keyValues + "\n";
                     fileWriter.write(messageRecord);
                 }
             } else {
@@ -118,13 +122,26 @@ public class KafkaConsumer implements ConsumerSeekAware {
         for (int i = 0; i < fieldNames.length; i++) {
             fieldValuePairs.put(fieldNames[i], values[i]);
         }
+        String request =  fieldValuePairs.get("$request").trim().split(" ")[1];
+        String appKey =fieldValuePairs.get("$http_AppKey").trim();
+        String path = request.split("\\?")[0];
+        // 异常请求，跳过
+        if (path.equals("/")) {
+            return null;
+        }
+        // 历史遗留接口请求，额外处理
+        if (path.equals("/m2mQueryService")) {
+            Map<String, String> paramMap = parseParam(request);
+            path = path + "?method=" + paramMap.get("method");
+            appKey = paramMap.get("user_id");
+        }
         return fieldValuePairs.get("$remote_addr") + "," +
                fieldValuePairs.get("$time_local") + "," +
                fieldValuePairs.get("$upstream_addr") + "," +
                fieldValuePairs.get("$request_time") + "," +
                fieldValuePairs.get("$status") + "," +
-               fieldValuePairs.get("$request").split(" ")[1].split("\\?")[0].trim() + "," +
-               fieldValuePairs.get("$http_AppKey").trim();
+               path + "," +
+               appKey;
     }
 
     private String extractKeyFieldValues(JSONObject message) {
@@ -160,5 +177,15 @@ public class KafkaConsumer implements ConsumerSeekAware {
             log.error("创建文件夹" + outputDir + "失败");
         }
         return outputDir;
+    }
+
+    private Map<String, String> parseParam(String request) {
+        String[] paramArray = request.split("\\?")[1].split("&");
+        Map<String, String> paramMap = new HashMap<>();
+        for (String s : paramArray) {
+            String[] pair = s.split("=");
+            paramMap.put(pair[0], pair[1]);
+        }
+        return paramMap;
     }
 }
